@@ -262,7 +262,7 @@ void parse_tcp(struct iphdr *iph, struct sk_buff *skb) {
                 printk(KERN_ERR "tcp new connection error: sessions array is full\n");
                 return;
         }
-    } else if (tcph->fin) {
+    } else if (tcph->fin || tcph->rst) {
         remove_tcp_session(iph, tcph);
     } else {
         switch (append_tcp_data(skb, iph, tcph)) {
