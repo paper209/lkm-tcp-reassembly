@@ -190,6 +190,26 @@ static int append_tcp_data(struct sk_buff *skb, struct iphdr *iph, struct tcphdr
     return 0;
 }
 
+// infer the os using ttl, windows
+static enum os infer_os(struct iphdr *iph, struct tcphdr *tcph) {
+    int linux_score = 0, windows_score = 0;
+    if (iph->ttl <= 64) {
+        linux_score++;
+    } else {
+        windows_score++;
+    }
+
+    if (ntohs(tcph->window) == 5840) {
+        linux_score++;
+    } else if (ntohs(tcph->window) == 65535 || ntohs(tcph->window) == 64240) {
+        windows_score++;
+    }
+
+
+    // if same score, return default os(linux)
+    return (linux_score >= windows_score) ? LINUX:WINDOWS;
+}
+
 // add a new session to the tcp sessions array
 static int new_tcp_session(struct iphdr *iph, struct tcphdr *tcph) {
     spin_lock(&tcp_lock);
@@ -222,7 +242,7 @@ static int new_tcp_session(struct iphdr *iph, struct tcphdr *tcph) {
         .buffer = buffer,
         .buffer_used = 0,
         .bitmap = bitmap,
-        .os = (iph->ttl <= 64) ? LINUX:WINDOWS,
+        .os = infer_os(iph, tcph),
         .state = SESSION_USED,
     };
     
