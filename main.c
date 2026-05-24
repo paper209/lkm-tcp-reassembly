@@ -12,17 +12,6 @@
 
 unsigned int parse_protocol(struct iphdr *iph, struct sk_buff *skb) {
     switch (iph->protocol) {
-        // udp
-        case 17: {
-            /*const struct udphdr *udph = udp_hdr(skb);
-            if (ntohs(udph->dest) == SET_PORT && iph->daddr == htonl(SET_ADDR)) {
-                parse_set_packet(skb, udph);
-                return NF_DROP;
-            }*/
-
-            break;
-        }
-
         // tcp
         case 6: {
             parse_tcp(iph, skb);
@@ -35,16 +24,9 @@ unsigned int parse_protocol(struct iphdr *iph, struct sk_buff *skb) {
 
 unsigned int hook(void *pb, struct sk_buff *skb, const struct nf_hook_state *state) {
     const struct iphdr *iph = ip_hdr(skb);
-    /*if (fast_filter(skb, iph)) {
-        return NF_DROP;
-    }*/
 
     unsigned int n = parse_protocol(iph, skb);
     if (n == NF_DROP) return n;
-
-    /*if (slow_filter(skb, iph)) {
-        return NF_DROP;
-    }*/
 
     return NF_ACCEPT;
 }
@@ -61,12 +43,6 @@ int init(void) {
         printk(KERN_ERR "init tcp error: alloc error\n");
         return TCP_ALLOC_ERROR;
     }
-
-    /*if (init_filters(FILTER_MAX_LENGTH) == FILTER_ALLOC_ERROR) {
-        printk(KERN_ERR "init filters error: alloc error\n");
-        return FILTER_ALLOC_ERROR;
-    }*/
-
     
     nf_register_net_hook(&init_net, &nfho);
     printk(KERN_INFO "inbound filter is loaded.\n");
@@ -75,10 +51,8 @@ int init(void) {
 }
 
 void deinit(void) {
-    nf_unregister_net_hook(&init_net, &nfho);
-    
-    //deinit_filters();
     deinit_tcp();
+    nf_unregister_net_hook(&init_net, &nfho);
     
     printk(KERN_INFO "inbound filter is unloaded.\n");
 }
