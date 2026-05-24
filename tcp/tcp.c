@@ -66,8 +66,16 @@ static int find_free_index(__be16 sport, __be32 daddr) {
     // minimum start index number
     unsigned int min = (ntohs(sport)+ntohl(daddr))%max_tcp_sessions;
     
-    // find free index number and return
+    // find free index min to max_tcp_sessions
     for (int i = min; i < max_tcp_sessions; i++) {
+        struct tcp_session *sess = &tcp_sessions[i];
+        if (sess->state == SESSION_EMPTY) {
+            return i;
+        }
+    }
+
+    // find free index 0 to min
+    for (int i = 0; i < min; i++) {
         struct tcp_session *sess = &tcp_sessions[i];
         if (sess->state == SESSION_EMPTY) {
             return i;
@@ -84,6 +92,17 @@ static struct tcp_session *fetch_tcp_session_unlock(struct iphdr *iph, struct tc
     unsigned int min = (ntohs(tcph->source)+ntohl(iph->daddr))%max_tcp_sessions;
     for (int i = min; i < max_tcp_sessions; i++) {
         struct tcp_session *sess = &tcp_sessions[i];   
+        if (sess->state == SESSION_USED) {
+            if (sess->saddr == iph->saddr && sess->daddr == iph->daddr) {
+                if (sess->sport == tcph->source && sess->dport == tcph->dest) {
+                    return sess;
+                }
+            }
+        }
+    }
+
+    for (int i = 0; i < min; i++) {
+        struct tcp_session *sess = &tcp_sessions[i];
         if (sess->state == SESSION_USED) {
             if (sess->saddr == iph->saddr && sess->daddr == iph->daddr) {
                 if (sess->sport == tcph->source && sess->dport == tcph->dest) {
