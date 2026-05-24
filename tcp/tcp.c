@@ -4,6 +4,7 @@
 #include <linux/spinlock.h>
 #include <linux/skbuff.h>
 #include <linux/slab.h>
+#include <linux/jiffies.h>
 
 #include "tcp.h"
  
@@ -11,6 +12,8 @@ static spinlock_t tcp_lock;
 
 static unsigned int max_tcp_buffer = 0; // tcp session's buffer max length
 static unsigned int max_tcp_sessions = 0; // max tcp sessions count
+
+static unsigned int tcp_session_timeout = 0;
 
 static struct tcp_session *tcp_sessions = NULL;
 
@@ -34,11 +37,19 @@ static int init_tcp_sessions(unsigned int max_sessions) {
 }
 
 // init spin lock and tcp sessions array
-int init_tcp(unsigned int max_sessions, unsigned int max_buffer) {
+int init_tcp(unsigned int max_sessions, unsigned int max_buffer, unsigned int timeout) {
     init_tcp_lock();
+    tcp_session_timeout = timeout;
     max_tcp_buffer = max_buffer;
     
     return init_tcp_sessions(max_sessions);
+}
+
+// cleanup tcp session
+static void cleanup_session(struct tcp_session *sess) {
+    kfree(sess->bitmap);
+    kfree(sess->buffer);
+    memset(sess, 0, sizeof(struct tcp_session));
 }
 
 // deinit tcp sessions array
@@ -53,10 +64,14 @@ void deinit_tcp(void) {
 
     for (int i = 0; i < max_tcp_sessions; i++) {
         struct tcp_session *sess = &tcp_sessions[i];
-        kfree(sess->bitmap);
-        kfree(sess->buffer);
+        cleanup_session(sess);
     }
     kfree(tcp_sessions);
+
+    tcp_sessions = NULL;
+    max_tcp_buffer = 0;
+    max_tcp_sessions = 0;
+    tcp_session_timeout = 0;
 
     spin_unlock(&tcp_lock);
 }
@@ -69,6 +84,12 @@ static int find_free_index(__be16 sport, __be32 daddr) {
     // find free index min to max_tcp_sessions
     for (int i = min; i < max_tcp_sessions; i++) {
         struct tcp_session *sess = &tcp_sessions[i];
+
+        // check the lastseen and clear timeout sessions
+        if (time_after(jiffies, sess->last_seen+msecs_to_jiffies(tcp_session_timeout*1000))) {
+            cleanup_session(sess);
+        }
+
         if (sess->state == SESSION_EMPTY) {
             return i;
         }
@@ -77,6 +98,12 @@ static int find_free_index(__be16 sport, __be32 daddr) {
     // find free index 0 to min
     for (int i = 0; i < min; i++) {
         struct tcp_session *sess = &tcp_sessions[i];
+
+        // check the lastseen and clear timeout sessions
+        if (time_after(jiffies, sess->last_seen+msecs_to_jiffies(tcp_session_timeout*1000))) {
+            cleanup_session(sess);
+        }
+
         if (sess->state == SESSION_EMPTY) {
             return i;
         }
@@ -203,6 +230,7 @@ static int append_tcp_data(struct sk_buff *skb, struct iphdr *iph, struct tcphdr
     }
     
     sess->buffer_used += data_len;
+    sess->last_seen = jiffies;
     kfree(tmp);
 
     spin_unlock(&tcp_lock);
@@ -261,6 +289,7 @@ static int new_tcp_session(struct iphdr *iph, struct tcphdr *tcph) {
         .buffer = buffer,
         .buffer_used = 0,
         .bitmap = bitmap,
+        .last_seen = jiffies,
         .os = infer_os(iph, tcph),
         .state = SESSION_USED,
     };
@@ -281,9 +310,7 @@ static int remove_tcp_session(struct iphdr *iph, struct tcphdr *tcph) {
         return TCP_SESSION_NOT_FOUND;
     }
 
-    kfree(sess->bitmap);
-    kfree(sess->buffer);
-    memset(sess, 0, sizeof(struct tcp_session));
+    cleanup_session(sess);
 
     spin_unlock(&tcp_lock);
     return 0;
