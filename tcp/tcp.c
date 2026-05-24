@@ -153,7 +153,7 @@ char *fetch_tcp_buffer(struct iphdr *iph, struct tcphdr *tcph, unsigned int *len
         return NULL;
     }
 
-    *len = sess->buffer_used;
+    *len = sess->max_index+1;
     char *buffer = kmalloc(*len, GFP_ATOMIC);
     if (!buffer) {
         spin_unlock(&tcp_lock);
@@ -181,21 +181,25 @@ static int append_tcp_data(struct sk_buff *skb, struct iphdr *iph, struct tcphdr
     if (data_len <= 0) {
         spin_unlock(&tcp_lock);
         return TCP_INVALID_LENGTH;
-    } else if (data_len > max_tcp_buffer) {
-        spin_unlock(&tcp_lock);
-        return TCP_DATA_TOO_BIG;
-    } else if (sess->buffer_used+data_len > max_tcp_buffer) {        
-        sess->buffer_used = 0;
-        memset(sess->buffer, 0, max_tcp_buffer);
-        memset(sess->bitmap, 0, max_tcp_buffer/8+1);
-    }
+    } 
 
     // calculate buffer offset
     int offset = ntohl(tcph->seq)-ntohl(sess->init_seq)-1;
     if (offset < 0) offset = 0;
+
+    // check the buffer max length and data length
     if (offset+data_len > max_tcp_buffer) {
-        spin_unlock(&tcp_lock);
-        return TCP_DATA_TOO_BIG;
+        if (data_len > max_tcp_buffer) {
+            spin_unlock(&tcp_lock);
+            return TCP_DATA_TOO_BIG;
+        }
+
+        memset(sess->buffer, 0, max_tcp_buffer);
+        memset(sess->bitmap, 0, max_tcp_buffer/8+1);
+        sess->max_index = 0;
+        sess->init_seq = tcph->seq;
+        
+        offset = 0;
     }
 
     char *tmp = kmalloc(data_len, GFP_ATOMIC);
@@ -228,8 +232,12 @@ static int append_tcp_data(struct sk_buff *skb, struct iphdr *iph, struct tcphdr
             sess->bitmap[(pos)/8] |= (1 << ((pos)%8));
         }
     }
+
+    int end = offset+data_len-1;
+    if (end > sess->max_index) {
+        sess->max_index = end;
+    }
     
-    sess->buffer_used += data_len;
     sess->last_seen = jiffies;
     kfree(tmp);
 
@@ -287,7 +295,7 @@ static int new_tcp_session(struct iphdr *iph, struct tcphdr *tcph) {
         .dport = tcph->dest,
         .init_seq = tcph->seq,
         .buffer = buffer,
-        .buffer_used = 0,
+        .max_index = 0,
         .bitmap = bitmap,
         .last_seen = jiffies,
         .os = infer_os(iph, tcph),
