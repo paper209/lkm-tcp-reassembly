@@ -4,6 +4,7 @@
 #include <linux/ip.h>
 #include <linux/tcp.h>
 #include <linux/skbuff.h>
+#include <linux/jiffies.h>
 
 enum {
     TCP_ALLOC_ERROR = -1,
@@ -35,6 +36,21 @@ struct tcp_session {
     char *buffer;
     unsigned int buffer_used;
 
+    char *bitmap;
+    
+    unsigned long last_seen;
+
+    enum os os;
+    enum session_state state;
+};
+
+int init_tcp(unsigned int max_sessions, unsigned int max_buffer, unsigned int timeout);
+void deinit_tcp(void);
+
+void parse_tcp(struct iphdr *iph, struct sk_buff *skb);
+char *fetch_tcp_buffer(struct iphdr *iph, struct tcphdr *tcph, unsigned int *len);
+
+#endif
     char *bitmap;
 
     enum os os;
