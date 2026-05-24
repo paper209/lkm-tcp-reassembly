@@ -34,7 +34,7 @@ struct tcp_session {
     __be32 init_seq;
 
     char *buffer;
-    unsigned int buffer_used;
+    unsigned int max_index;
 
     char *bitmap;
     
@@ -45,19 +45,6 @@ struct tcp_session {
 };
 
 int init_tcp(unsigned int max_sessions, unsigned int max_buffer, unsigned int timeout);
-void deinit_tcp(void);
-
-void parse_tcp(struct iphdr *iph, struct sk_buff *skb);
-char *fetch_tcp_buffer(struct iphdr *iph, struct tcphdr *tcph, unsigned int *len);
-
-#endif
-    char *bitmap;
-
-    enum os os;
-    enum session_state state;
-};
-
-int init_tcp(unsigned int max_sessions, unsigned int max_buffer);
 void deinit_tcp(void);
 
 void parse_tcp(struct iphdr *iph, struct sk_buff *skb);
