@@ -77,16 +77,16 @@ void deinit_tcp(void) {
 }
 
 // find free index number on tcp sessions array
-static int find_free_index(__be16 sport, __be32 daddr) {
+static int find_free_index(__be16 sport, __be16 dport, __be32 saddr, __be32 daddr) {
     // minimum start index number
-    unsigned int min = (ntohs(sport)+ntohl(daddr))%max_tcp_sessions;
+    unsigned int min = (ntohs(sport)+ntohs(dport)+ntohl(saddr)+ntohl(daddr))%max_tcp_sessions;
     
     // find free index min to max_tcp_sessions
     for (int i = min; i < max_tcp_sessions; i++) {
         struct tcp_session *sess = &tcp_sessions[i];
 
         // check the lastseen and clear timeout sessions
-        if (time_after(jiffies, sess->last_seen+msecs_to_jiffies(tcp_session_timeout*1000))) {
+        if (sess->state == SESSION_USED && time_after(jiffies, sess->last_seen+msecs_to_jiffies(tcp_session_timeout*1000))) {
             cleanup_session(sess);
         }
 
@@ -100,7 +100,7 @@ static int find_free_index(__be16 sport, __be32 daddr) {
         struct tcp_session *sess = &tcp_sessions[i];
 
         // check the lastseen and clear timeout sessions
-        if (time_after(jiffies, sess->last_seen+msecs_to_jiffies(tcp_session_timeout*1000))) {
+        if (sess->state == SESSION_USED && time_after(jiffies, sess->last_seen+msecs_to_jiffies(tcp_session_timeout*1000))) {
             cleanup_session(sess);
         }
 
@@ -116,7 +116,7 @@ static int find_free_index(__be16 sport, __be32 daddr) {
 // fetch tcp session from the tcp sessions array (caller must hold spin lock)
 static struct tcp_session *fetch_tcp_session_unlock(struct iphdr *iph, struct tcphdr *tcph) {
     // minimum start index number
-    unsigned int min = (ntohs(tcph->source)+ntohl(iph->daddr))%max_tcp_sessions;
+    unsigned int min = (ntohs(tcph->source)+ntohs(tcph->dest)+ntohl(iph->saddr)+ntohl(iph->daddr))%max_tcp_sessions;
     for (int i = min; i < max_tcp_sessions; i++) {
         struct tcp_session *sess = &tcp_sessions[i];   
         if (sess->state == SESSION_USED) {
@@ -269,7 +269,7 @@ static enum os infer_os(struct iphdr *iph, struct tcphdr *tcph) {
 static int new_tcp_session(struct iphdr *iph, struct tcphdr *tcph) {
     spin_lock(&tcp_lock);
 
-    int i = find_free_index(tcph->source, iph->daddr);
+    int i = find_free_index(tcph->source, tcph->dest, iph->saddr, iph->daddr);
     if (i < 0) {
         spin_unlock(&tcp_lock);
         return i;
