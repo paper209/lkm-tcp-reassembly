@@ -267,25 +267,26 @@ static enum os infer_os(struct iphdr *iph, struct tcphdr *tcph) {
 
 // add a new session to the tcp sessions array
 static int new_tcp_session(struct iphdr *iph, struct tcphdr *tcph) {
-    spin_lock(&tcp_lock);
-
-    int i = find_free_index(tcph->source, tcph->dest, iph->saddr, iph->daddr);
-    if (i < 0) {
-        spin_unlock(&tcp_lock);
-        return i;
-    }
-
     char *buffer = kmalloc(max_tcp_buffer, GFP_ATOMIC);
     if (!buffer) {
-        spin_unlock(&tcp_lock);
         return TCP_ALLOC_ERROR;
     }
 
     char *bitmap = kcalloc(max_tcp_buffer/8+1, sizeof(char), GFP_ATOMIC);
     if (!bitmap) {
         kfree(buffer);
-        spin_unlock(&tcp_lock);
         return TCP_ALLOC_ERROR;
+    }
+
+    spin_lock(&tcp_lock);
+    int i = find_free_index(tcph->source, tcph->dest, iph->saddr, iph->daddr);
+    if (i < 0) {
+        spin_unlock(&tcp_lock);
+        
+        kfree(buffer);
+        kfree(bitmap);
+
+        return i;
     }
 
     tcp_sessions[i] = (struct tcp_session){
